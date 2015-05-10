@@ -21,6 +21,10 @@
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
+//For setup stack
+static bool setup_stack_helper (const char * cmd_line, uint8_t * kpage, uint8_t * upage, void ** esp);
+static void * push (uint8_t *kpage, size_t *ofs, const void *buf, size_t size);
+
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
@@ -195,7 +199,7 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp);
+static bool setup_stack (void **esp, const char * cmd_line);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -302,7 +306,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp))
+  if (!setup_stack (esp,file_name))
     goto done;
 
   /* Start address. */
@@ -427,7 +431,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp) 
+setup_stack (void **esp, const char * cmd_line) 
 {
   uint8_t *kpage;
   bool success = false;
@@ -435,13 +439,98 @@ setup_stack (void **esp)
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
   if (kpage != NULL) 
     {
-      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
+    	uint8_t *upage = ( (uint8_t *) PHYS_BASE ) - PGSIZE;
+      success = install_page (upage, kpage, true);
       if (success)
-        *esp = PHYS_BASE;
+        success=setup_stack_helper(cmd_line, kpage, upage, esp);
+        //*esp = PHYS_BASE;
       else
         palloc_free_page (kpage);
     }
   return success;
+}
+
+/* Helper function to set up stack. */
+static bool setup_stack_helper (const char * cmd_line, uint8_t * kpage, uint8_t * upage, void ** esp) 
+{
+  size_t ofs = PGSIZE; //##Used in push!
+  char * const null = NULL; //##Used for pushing nulls
+  //char *ptr; //##strtok_r usage
+  //##Probably need some other variables here as well...
+  
+	void * curadr;
+	void ** alladr=palloc_get_page(0);
+
+	//Tokenizing input	
+	int argc=0;
+	char * input = palloc_get_page(0);
+ 	strlcpy(input,cmd_line,PGSIZE);
+
+	//delimiter is set to a space.
+ 	const char * delim=" ";
+ 	char * saveptr;
+	
+	//Tokenize and push on stack. Also save address for later use.
+	char * temp=strtok_r(input,delim,&saveptr);
+ 	while(temp!=NULL){
+		curadr=push (kpage, &ofs, temp, sizeof(char)*(strlen(temp)+1));
+		alladr[argc]=curadr;
+		argc++;
+ 		temp=strtok_r(NULL,delim,&saveptr);
+ 	}
+		
+	//push null
+	curadr=push (kpage, &ofs, null, sizeof(null));
+
+	//push addresses of arguments
+	int i=argc-1;
+	for(;i>=0;i--){
+		push (kpage, &ofs, alladr[argc], sizeof(void*));
+	}
+
+	//push argv
+	push (kpage, &ofs, alladr, sizeof(void *));
+
+	//push argc
+	push (kpage, &ofs, argc, sizeof(argc));
+
+	//push fake return
+	*esp=push (kpage, &ofs, null, sizeof(null));
+  
+  //##Parse and put in command line arguments, push each value
+  //##if any push() returns NULL, return false
+  
+	//##push() a null (more precisely &null).
+  //##if push returned NULL, return false
+  
+	//##Push argv addresses (i.e. for the cmd_line added above) in reverse order
+  //##See the stack example on documentation for what "reversed" means
+  //##Push argc, how can we determine argc?
+  //##Push &null
+  //##Should you check for NULL returns?
+  
+  //##Set the stack pointer. IMPORTANT! Make sure you use the right value here...
+  //*esp = upage + ofs;
+ 	
+	//If you made it this far, everything seems good, return true
+	return true;
+}
+
+//Push function
+static void *
+push (uint8_t *kpage, size_t *ofs, const void *buf, size_t size) 
+{
+  size_t padsize = ROUND_UP (size, sizeof (uint32_t));
+  
+  if (*ofs < padsize){
+    return NULL;
+  }
+
+  *ofs -= padsize;
+
+  memcpy (kpage + *ofs + (padsize - size), buf, size);
+  
+  return kpage + *ofs + (padsize - size);
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel
