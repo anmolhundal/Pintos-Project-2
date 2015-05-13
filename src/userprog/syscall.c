@@ -12,9 +12,11 @@
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
 
-#define MAX_ARGS 4
 
 //need to create lock struct
+struct lock sys_lock;
+struct file *file;
+
 
 static void syscall_handler (struct intr_frame *);
 int user_to_kernel_ptr(const void *vaddr);
@@ -33,63 +35,73 @@ void
 syscall_init (void)
 {
     intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
+    lock init(&sys_lock);
 }
 
 static void
 syscall_handler (struct intr_frame *f UNUSED)
 {
-    int i, arg[MAX_ARGS];
-    for (i = 0; i < MAX_ARGS; i++)
-    {
-        arg[i] = * ((int *) f->esp + i);
-    }
+    int *esp = f->esp;
+    is_mapped(esp);
     
 		//Dispatch syscall to handler	
-		switch (arg[0]){
+		switch (*esp){
         case SYS_HALT:
             halt();
             break;
         case SYS_EXIT:
-            exit(arg[1]);
+			is_mapped(esp+1);
+            exit(*(esp+1));
             break;
     	  case SYS_EXEC:
-            //arg[1] = user_to_kernel_ptr((const void *) arg[1]);
-            //exec((const char *) arg[1]);
+			is_mapped(*(esp+1));
+			f->eax = exec (*(esp+1));
             break;
         case SYS_WAIT:
-            wait(arg[1]);
+			is_mapped(esp+1);
+            f->eax = wait(*(esp+1));
             break;
         case SYS_CREATE:
-            //arg[1] = user_to_kernel_ptr((const void *) arg[1]);
-            //create((const char *)arg[1], (unsigned) arg[2]);
+			is_mapped(*(esp+1));
+			is_mapped(esp+2);
+			f->eax = create ( *(esp+1), (esp+2));
             break;
         case SYS_REMOVE:
-            //arg[1] = user_to_kernel_ptr((const void *) arg[1]);
-            //remove((const char *) arg[1]);
+			is_mapped(*(esp+1));
+			f->eax = remove (*(esp+1));
             break;
         case SYS_OPEN:
-            //arg[1] = user_to_kernel_ptr((const void *) arg[1]);
-            //open((const char *) arg[1]);
+			is_mapped(*(esp+1));
+			f->eax = open (*(esp+1));
             break;
         case SYS_FILESIZE:
-            //filesize(arg[1]);
+			is_mapped(esp+1);
+			f->eax = filesize ( esp+1 );
             break;
         case SYS_READ:
-            //arg[2] = user_to_kernel_ptr((const void *) arg[2]);
-            //read(arg[1], (void *) arg[2], (unsigned) arg[3]);
+			is_mapped(esp+1);
+			is_mapped(*(esp+2));
+			is_mapped(esp+3);
+			f->eax = read ( (esp+1), *(esp+2), (esp+3) );
             break;
         case SYS_WRITE:
-            //arg[2] = user_to_kernel_ptr((const void *) arg[2]);
-            //write(arg[1], (const void *) arg[2], (unsigned) arg[3]);
+			is_mapped(esp+1);
+			is_mapped(*(esp+2));
+			is_mapped(esp+3);
+			f->eax = write ( (esp+1), *(esp+2), (esp+3) );
             break;
         case SYS_SEEK:
-            //seek(arg[1], (unsigned) arg[2]);
+			is_mapped(esp+1);
+			is_mapped(esp+2);
+			seek ( (esp+1), (esp+2) );
             break;
         case SYS_TELL:
-            //tell(arg[1]);
+			is_mapped(esp+1);
+			f->eax = tell ( (esp+1) );
             break;
         case SYS_CLOSE:
-            //close(arg[1]);
+			is_mapped(esp+1);
+			close ( (esp+1) );
             break;
     }
 }
@@ -101,59 +113,69 @@ void halt (void)
 
 void exit (int status)
 {
-	//struct thread *current = thread_current();
-	//if(thread_alive(current->parent))
-	//{
-	//	current->cp->status;
-	//}
-  //  printf ("%s: exit(%d)\n", current->name, status);
-  thread_exit();
+	struct thread *current = thread_current();
+	if(thread_alive(current->parent))
+	{
+		current->cp->status;
+	}
+    printf ("%s: exit(%d)\n", current->name, status);
+    thread_exit();
 }
 
-//pid_t exec (const char *cmd_line)
-//{
-//	pid_t pid = process_execute(cmd_line);
-//	struct child_procces* cp = get_child_process(pid);
-//	while(cp->load == NOT_LOADED)
-//	{
-//		barrier();
-//	}
-//	if (cp->load == LOAD_FAIL)
-//	{
-//		return ERROR;
-//	}
-//	return pid;
-//}
+pid_t exec (const char *cmd_line)
+{
+	pid_t pid = process_execute(cmd_line);
+	struct child_procces* cp = get_child_process(pid);
+	while(cp->load == NOT_LOADED)
+	{
+		barrier();
+	}
+	if (cp->load == LOAD_FAIL)
+	{
+		return ERROR;
+	}
+	return pid;
+}
 
 int wait (pid_t pid)
 {
-	//FIXME
-	while(1);
 	return process_wait(pid);
 }
 
 
-//bool create (const char *file, unsigned initial_size)
-//{
-//	//need to create lock struct
-//   
-//}
-//
-//bool remove (const char *file)
-//{
-//    
-//}
-//
-//int open (const char *file)
-//{
-//    
-//}
-//
-//int filesize (int fd)
-//{
-//    
-//}
-//
+bool create (const char *file, unsigned initial_size)
+{
+	lock_aquire(&sys_lock);
+	bool result = filesys_create(file, initial_size);
+	lock_release(&sys_lock);
+	return result;
+   
+}
+
+bool remove (const char *file)
+{
+	lock_aquire(&sys_lock);
+	bool result = filesys_remove (file);
+	lock_release(&sys_lock);
+	return result;
+    
+}
+
+int open (const char *file)
+{
+	lock_aquire(&sys_lock);
+	struct file *f = filesys_open(file);
+	int fd = (!f) ? ERROR : process_add_file(f);
+	lock_release(&sys_lock);
+	return fd;
+
+}
+
+int filesize (int fd)
+{
+    
+}
+
 //int read (int fd, void *buffer, unsigned size)
 //{
 //}
@@ -177,23 +199,27 @@ int wait (pid_t pid)
 //{
 //    
 //}
-//
-//int user_to_kernel_ptr(const void *vaddr)
-//{
-//    
-//}
-//
-//int process_add_file (struct file *f)
-//{
-//    
-//}
-//
-//struct file* process_get_file (int fd)
-//{
-//    
-//}
-//
-//void process_close_file (int fd)
-//{
-//    
-//}
+
+void
+is_mapped(int *esp) 
+{
+	struct thread *cur = thread_current ();
+	
+	if(esp == NULL)
+	{
+		printf ("%s: exit(%d)\n", cur->name, cur->exit_status);
+		thread_exit ();
+	}
+	
+	if(is_kernel_vaddr (esp))
+	{
+		printf ("%s: exit(%d)\n", cur->name, cur->exit_status);
+		thread_exit ();	
+	}
+    
+    if( pagedir_get_page (cur->pagedir, esp) == NULL )
+    {
+		printf ("%s: exit(%d)\n", cur->name, cur->exit_status);
+		thread_exit ();
+	}
+}
