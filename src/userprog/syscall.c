@@ -15,7 +15,12 @@
 
 //need to create lock struct
 struct lock sys_lock;
-struct file *file;
+
+struct file_elements {
+	struct list_elem elem;
+	struct file *file;
+	int fd;
+};
 
 
 static void syscall_handler (struct intr_frame *);
@@ -111,6 +116,7 @@ void halt (void)
   shutdown_power_off();
 }
 
+//rtwilson
 void exit (int status)
 {
 	struct thread *current = thread_current();
@@ -122,6 +128,7 @@ void exit (int status)
     thread_exit();
 }
 
+//rtwilson
 pid_t exec (const char *cmd_line)
 {
 	pid_t pid = process_execute(cmd_line);
@@ -171,15 +178,43 @@ int open (const char *file)
 
 }
 
+//not rtwilson
 int filesize (int fd)
 {
-    
+	lock_aquire(&sys_lock);
+	int result = (fd > thread_current()->fd_index || fd < 2 ) ? 0 :
+		file_length(thread_current()->file_pointers[fd]);
+	lock_release(&sys_lock);
+	return result;
 }
 
-//int read (int fd, void *buffer, unsigned size)
-//{
-//}
-//
+int read (int fd, void *buffer, unsigned size)
+{
+	lock_aquire(&sys_lock);
+	struct thread *cur = thread_current();
+	if(fd == STDIN_FILENO)
+	{
+		unsigned i;
+		uint8_t *b_ptr = (uint8_t *) buffer;
+		for(i = 0; i < size; i++)
+		{
+			b_ptr[i] = input_getc();
+		}
+		lock_release(&sys_lock);
+		return size;
+	}
+	else if( fd > 1 && fd <= cur->fd_index && buffer != NULL)
+	{
+		result = file_read(cur->file_pointers[fd], buffer, size);
+	}
+	else
+	{
+		result = ERROR;
+	}
+	lock_release(&sys_lock);
+	return result;	
+}
+
 //int write (int fd, const void *buffer, unsigned size)
 //{
 //    
@@ -190,15 +225,32 @@ int filesize (int fd)
 //    
 //}
 //
-//unsigned tell (int fd)
-//{
-//    
-//}
+unsigned tell (int fd)
+{
+	lock_aquire(&sys_lock);
+	if(fd > thread_current()->fd_index || fd < 2)
+	{
+		lock_release(&sys_lock);
+		thread_exit();
+	}
+	unsigned result = file_tell(thread_current()->file_pointers[fd]);
+	lock_release(&sys_lock);
+	return result;
+}
 //
-//void close (int fd)
-//{
-//    
-//}
+void close (int fd)
+{
+	lock_aquire(&sys_lock);
+	struct thread* a = thread_current();
+	if(fd <= a->fd_index && fd > 2)
+	{
+		if(a->file_pointers[fd] != NULL)
+		{
+			file_close(a->file_pointers[fd]);
+		}
+	}
+	lock_release(&sys_lock);
+}
 
 void
 is_mapped(int *esp) 

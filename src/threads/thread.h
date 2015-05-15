@@ -92,6 +92,9 @@ struct thread
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
+    
+    struct file *file_pointers[150]; // array of open files indexed by fd
+    int fd_index; // the index of the next file to be opened
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
