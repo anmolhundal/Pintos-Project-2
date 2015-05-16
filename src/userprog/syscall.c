@@ -1,39 +1,41 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
+#include <string.h>
 #include <syscall-nr.h>
 #include <user/syscall.h>
 #include "devices/input.h"
 #include "devices/shutdown.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
+#include "filesys/inode.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "threads/synch.h"
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
+#include "usrprog/syscall.h"
 
 
 //need to create lock struct
 struct lock sys_lock;
 
 struct file_elements {
-	struct list_elem elem;
 	struct file *file;
 	int fd;
 };
 
 
 static void syscall_handler (struct intr_frame *);
-int user_to_kernel_ptr(const void *vaddr);
 
-int process_add_file (struct file *f);
-struct file* process_get_file (int fd);
-void process_close_file (int fd);
+//int process_add_file (struct file *f);
+//struct file* process_get_file (int fd);
+//void process_close_file (int fd);
 
 //syscall prototypes
 void halt (void);
 void exit (int status);
-pid_t exec (const char *cmd_line);
+int exec (const char *cmd_line);
 int wait (pid_t pid);
 
 void
@@ -108,6 +110,9 @@ syscall_handler (struct intr_frame *f UNUSED)
 			is_mapped(esp+1);
 			close ( (esp+1) );
             break;
+        default:
+			thread_exit();
+			break;
     }
 }
 
@@ -116,7 +121,7 @@ void halt (void)
   shutdown_power_off();
 }
 
-//rtwilson
+//
 void exit (int status)
 {
 	struct thread *current = thread_current();
@@ -125,10 +130,10 @@ void exit (int status)
 		current->cp->status;
 	}
     printf ("%s: exit(%d)\n", current->name, status);
+    close_all_files();
     thread_exit();
 }
-
-//rtwilson
+//
 pid_t exec (const char *cmd_line)
 {
 	pid_t pid = process_execute(cmd_line);
@@ -143,13 +148,13 @@ pid_t exec (const char *cmd_line)
 	}
 	return pid;
 }
-
+//
 int wait (pid_t pid)
 {
 	return process_wait(pid);
 }
 
-
+//
 bool create (const char *file, unsigned initial_size)
 {
 	lock_aquire(&sys_lock);
@@ -158,7 +163,7 @@ bool create (const char *file, unsigned initial_size)
 	return result;
    
 }
-
+//
 bool remove (const char *file)
 {
 	lock_aquire(&sys_lock);
@@ -167,18 +172,18 @@ bool remove (const char *file)
 	return result;
     
 }
-
+//
 int open (const char *file)
 {
 	lock_aquire(&sys_lock);
 	struct file *f = filesys_open(file);
-	int fd = (!f) ? ERROR : process_add_file(f);
+	int fd = (!f) ? ERROR : process_add_file(f); 
 	lock_release(&sys_lock);
 	return fd;
 
 }
 
-//not rtwilson
+//
 int filesize (int fd)
 {
 	lock_aquire(&sys_lock);
@@ -187,7 +192,7 @@ int filesize (int fd)
 	lock_release(&sys_lock);
 	return result;
 }
-
+//
 int read (int fd, void *buffer, unsigned size)
 {
 	lock_aquire(&sys_lock);
@@ -214,26 +219,68 @@ int read (int fd, void *buffer, unsigned size)
 	lock_release(&sys_lock);
 	return result;	
 }
-
-//int write (int fd, const void *buffer, unsigned size)
-//{
-//    
-//}
 //
-//void seek (int fd, unsigned position)
-//{
-//    
-//}
-//
-unsigned tell (int fd)
+int write (int fd, const void *buffer, unsigned size)
 {
 	lock_aquire(&sys_lock);
-	if(fd > thread_current()->fd_index || fd < 2)
+	struct thread *cur = thread_current();
+	if(fd > 0 && fd <= cur->fd_index && buffer != NULL)
+	{
+		//for writing to the console
+		if(fd == STDOUT_FILENO)
+		{
+			putbuf(buffer, size);
+			lock_release(&sys_lock);
+			return size;
+		}
+		//for writing to a file
+		if(fd != 0 && fd != STDOUT_FILENO)
+		{
+			struct file *f = cur->file_pointers[fd];
+		
+			if(f->inode->is_dir == -1)
+			{
+				lock_release(&sys_lock);
+				return ERROR;
+			}
+		
+			int result = file_write(cur->file_pointers[fd], buffer, size);
+			lock_release(&sys_lock);
+			return result;
+		}
+		lock_release(&sys_lock);
+		return size;
+	}
+	//if it had bad file descriptor
+	return ERROR;   
+}
+//
+void seek (int fd, unsigned position)
+{
+	lock_aquire(&sys_lock);
+	struct thread *cur = thread_current();
+	if( fd <= cur->fd_index && fd >= 2)
+	{
+		file_seek( cur->file_pointers[fd], position);
+		lock_release(&sys_lock);
+	}
+	else
 	{
 		lock_release(&sys_lock);
 		thread_exit();
 	}
-	unsigned result = file_tell(thread_current()->file_pointers[fd]);
+}
+//
+unsigned tell (int fd)
+{
+	lock_aquire(&sys_lock);
+	struct thread *cur = thread_current();
+	if(fd > cur->fd_index || fd < 2)
+	{
+		lock_release(&sys_lock);
+		thread_exit();
+	}
+	unsigned result = file_tell(cur->file_pointers[fd]);
 	lock_release(&sys_lock);
 	return result;
 }
@@ -241,17 +288,27 @@ unsigned tell (int fd)
 void close (int fd)
 {
 	lock_aquire(&sys_lock);
-	struct thread* a = thread_current();
-	if(fd <= a->fd_index && fd > 2)
+	struct thread* cur = thread_current();
+	if(fd <= cur->fd_index && fd > 2)
 	{
-		if(a->file_pointers[fd] != NULL)
+		if(cur->file_pointers[fd] != NULL)
 		{
-			file_close(a->file_pointers[fd]);
+			file_close(cur->file_pointers[fd]);
 		}
 	}
 	lock_release(&sys_lock);
 }
-
+//
+void
+close_all_files()
+{
+	int i;
+	for(i = 2; i < 150; i++)
+	{
+		close(i); 
+	}  
+}        
+//
 void
 is_mapped(int *esp) 
 {
