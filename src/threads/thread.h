@@ -95,6 +95,10 @@ struct thread
     
     struct file *file_pointers[150]; // array of open files indexed by fd
     int fd_index; // the index of the next file to be opened
+    
+    int exit_status;
+    int load;
+    struct file * file_keep;
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */

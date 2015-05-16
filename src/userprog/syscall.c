@@ -14,17 +14,11 @@
 #include "threads/synch.h"
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
-#include "usrprog/syscall.h"
 
 
-//need to create lock struct
+
+
 struct lock sys_lock;
-
-struct file_elements {
-	struct file *file;
-	int fd;
-};
-
 
 static void syscall_handler (struct intr_frame *);
 
@@ -32,23 +26,18 @@ static void syscall_handler (struct intr_frame *);
 //struct file* process_get_file (int fd);
 //void process_close_file (int fd);
 
-//syscall prototypes
-void halt (void);
-void exit (int status);
-int exec (const char *cmd_line);
-int wait (pid_t pid);
 
 void
 syscall_init (void)
 {
     intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
-    lock init(&sys_lock);
+    lock_init(&sys_lock);
 }
 
 static void
 syscall_handler (struct intr_frame *f UNUSED)
 {
-    int *esp = f->esp;
+    int * esp = f->esp;
     is_mapped(esp);
     
 		//Dispatch syscall to handler	
@@ -124,25 +113,23 @@ void halt (void)
 //
 void exit (int status)
 {
-	struct thread *current = thread_current();
-	if(thread_alive(current->parent))
-	{
-		current->cp->status;
-	}
-    printf ("%s: exit(%d)\n", current->name, status);
-    close_all_files();
-    thread_exit();
+	struct thread *cur = thread_current ();
+	cur->exit_status = status;
+	char *temp;   
+	printf ("%s: exit(%d)\n", strtok_r(cur->name, " ", &temp), status);
+	file_close (cur->file_keep); 
+	close_all_files (); 
+	thread_exit (); 
 }
 //
 pid_t exec (const char *cmd_line)
 {
 	pid_t pid = process_execute(cmd_line);
-	struct child_procces* cp = get_child_process(pid);
-	while(cp->load == NOT_LOADED)
+	while(pid == 0)
 	{
 		barrier();
 	}
-	if (cp->load == LOAD_FAIL)
+	if (pid == -1)
 	{
 		return ERROR;
 	}
@@ -157,7 +144,7 @@ int wait (pid_t pid)
 //
 bool create (const char *file, unsigned initial_size)
 {
-	lock_aquire(&sys_lock);
+	lock_acquire(&sys_lock);
 	bool result = filesys_create(file, initial_size);
 	lock_release(&sys_lock);
 	return result;
@@ -166,7 +153,7 @@ bool create (const char *file, unsigned initial_size)
 //
 bool remove (const char *file)
 {
-	lock_aquire(&sys_lock);
+	lock_acquire(&sys_lock);
 	bool result = filesys_remove (file);
 	lock_release(&sys_lock);
 	return result;
@@ -175,18 +162,27 @@ bool remove (const char *file)
 //
 int open (const char *file)
 {
-	lock_aquire(&sys_lock);
+	lock_acquire(&sys_lock);
+	int result;
+	struct thread *cur = thread_current();
+	cur->file_pointers[cur->fd_index] = filesys_open(file);
 	struct file *f = filesys_open(file);
-	int fd = (!f) ? ERROR : process_add_file(f); 
+	if(!f)
+	{
+		lock_release(&sys_lock);
+		return ERROR;
+	}
+	
+	result = (cur->file_pointers[cur->fd_index] == NULL) ? ERROR : cur->fd_index++;
 	lock_release(&sys_lock);
-	return fd;
+	return result;
 
 }
 
 //
 int filesize (int fd)
 {
-	lock_aquire(&sys_lock);
+	lock_acquire(&sys_lock);
 	int result = (fd > thread_current()->fd_index || fd < 2 ) ? 0 :
 		file_length(thread_current()->file_pointers[fd]);
 	lock_release(&sys_lock);
@@ -195,7 +191,8 @@ int filesize (int fd)
 //
 int read (int fd, void *buffer, unsigned size)
 {
-	lock_aquire(&sys_lock);
+	lock_acquire(&sys_lock);
+	int result;
 	struct thread *cur = thread_current();
 	if(fd == STDIN_FILENO)
 	{
@@ -222,7 +219,7 @@ int read (int fd, void *buffer, unsigned size)
 //
 int write (int fd, const void *buffer, unsigned size)
 {
-	lock_aquire(&sys_lock);
+	lock_acquire(&sys_lock);
 	struct thread *cur = thread_current();
 	if(fd > 0 && fd <= cur->fd_index && buffer != NULL)
 	{
@@ -238,11 +235,11 @@ int write (int fd, const void *buffer, unsigned size)
 		{
 			struct file *f = cur->file_pointers[fd];
 		
-			if(f->inode->is_dir == -1)
-			{
-				lock_release(&sys_lock);
-				return ERROR;
-			}
+			//if(f->inode->is_dir == -1)
+			//{
+			//	lock_release(&sys_lock);
+			//	return ERROR;
+			//}
 		
 			int result = file_write(cur->file_pointers[fd], buffer, size);
 			lock_release(&sys_lock);
@@ -257,7 +254,7 @@ int write (int fd, const void *buffer, unsigned size)
 //
 void seek (int fd, unsigned position)
 {
-	lock_aquire(&sys_lock);
+	lock_acquire(&sys_lock);
 	struct thread *cur = thread_current();
 	if( fd <= cur->fd_index && fd >= 2)
 	{
@@ -273,7 +270,7 @@ void seek (int fd, unsigned position)
 //
 unsigned tell (int fd)
 {
-	lock_aquire(&sys_lock);
+	lock_acquire(&sys_lock);
 	struct thread *cur = thread_current();
 	if(fd > cur->fd_index || fd < 2)
 	{
@@ -287,7 +284,7 @@ unsigned tell (int fd)
 //
 void close (int fd)
 {
-	lock_aquire(&sys_lock);
+	lock_acquire(&sys_lock);
 	struct thread* cur = thread_current();
 	if(fd <= cur->fd_index && fd > 2)
 	{
@@ -310,7 +307,7 @@ close_all_files()
 }        
 //
 void
-is_mapped(int *esp) 
+is_mapped(int* esp) 
 {
 	struct thread *cur = thread_current ();
 	
