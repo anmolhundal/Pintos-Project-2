@@ -15,8 +15,7 @@
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
 
-
-
+#define MAX_ARGS 4
 
 struct lock sys_lock;
 
@@ -26,6 +25,19 @@ static void syscall_handler (struct intr_frame *);
 //struct file* process_get_file (int fd);
 //void process_close_file (int fd);
 
+int user_to_kernel_ptr(const void * vaddr)
+{
+	if(!is_user_vaddr(vaddr)){
+		thread_exit();
+		return 0;
+	}
+	void *ptr=pagedir_get_page(thread_current()->pagedir,vaddr);
+	if(!ptr){
+		thread_exit();
+		return 0;
+	}
+	return (int) ptr;
+}
 
 void
 syscall_init (void)
@@ -37,8 +49,14 @@ syscall_init (void)
 static void
 syscall_handler (struct intr_frame *f UNUSED)
 {
-    int * esp = f->esp;
-    is_mapped(esp);
+		printf("\nin syscall handler\n\n");
+		int i, arg[MAX_ARGS];
+		for(i=0;i<MAX_ARGS;i++)
+		{
+			arg[i]=*((int *) f->esp+1);
+		}
+        int * esp = f->esp;
+        is_mapped(esp);
     
 		//Dispatch syscall to handler	
 		switch (*esp){
@@ -47,9 +65,9 @@ syscall_handler (struct intr_frame *f UNUSED)
             break;
         case SYS_EXIT:
 			is_mapped(esp+1);
-            exit(*(esp+1));
+          	exit(*(esp+1));
             break;
-    	  case SYS_EXEC:
+    	case SYS_EXEC:
 			is_mapped(*(esp+1));
 			f->eax = exec (*(esp+1));
             break;
@@ -81,24 +99,26 @@ syscall_handler (struct intr_frame *f UNUSED)
 			f->eax = read ( (esp+1), *(esp+2), (esp+3) );
             break;
         case SYS_WRITE:
-			is_mapped(esp+1);
-			is_mapped(*(esp+2));
-			is_mapped(esp+3);
-			f->eax = write ( (esp+1), *(esp+2), (esp+3) );
-            break;
+			//is_mapped(esp+1);
+			//is_mapped(*(esp+2));
+			//is_mapped(esp+3);
+			//f->eax = write ( (esp+1), *(esp+2), (esp+3) );
+			//void * arg2=user_to_kernel_ptr((const void *)(esp+2));
+			//f->eax = write ( (esp+1), arg2, (esp+3) );
+          	break;
         case SYS_SEEK:
 			is_mapped(esp+1);
 			is_mapped(esp+2);
 			seek ( (esp+1), (esp+2) );
-            break;
+          	break;
         case SYS_TELL:
 			is_mapped(esp+1);
 			f->eax = tell ( (esp+1) );
-            break;
+          	break;
         case SYS_CLOSE:
 			is_mapped(esp+1);
 			close ( (esp+1) );
-            break;
+          	break;
         default:
 			thread_exit();
 			break;
@@ -107,10 +127,10 @@ syscall_handler (struct intr_frame *f UNUSED)
 
 void halt (void)
 {
-  shutdown_power_off();
+  	shutdown_power_off();
 }
 
-//
+
 void exit (int status)
 {
 	struct thread *cur = thread_current ();
@@ -216,10 +236,11 @@ int read (int fd, void *buffer, unsigned size)
 	lock_release(&sys_lock);
 	return result;	
 }
-//
+
 int write (int fd, const void *buffer, unsigned size)
 {
-	lock_acquire(&sys_lock);
+	printf("\nin write\n\n");
+	//lock_acquire(&sys_lock);
 	struct thread *cur = thread_current();
 	if(fd > 0 && fd <= cur->fd_index && buffer != NULL)
 	{
@@ -227,7 +248,8 @@ int write (int fd, const void *buffer, unsigned size)
 		if(fd == STDOUT_FILENO)
 		{
 			putbuf(buffer, size);
-			lock_release(&sys_lock);
+			printf("\nprinted\n\n");
+			//lock_release(&sys_lock);
 			return size;
 		}
 		//for writing to a file

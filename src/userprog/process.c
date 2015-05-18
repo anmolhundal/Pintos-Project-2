@@ -42,8 +42,29 @@ process_execute (const char *file_name)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
 
+//---------------------------------------------------
+
+	//Tokenizing input	
+	char * copy_fn = palloc_get_page(0);
+ 	strlcpy (copy_fn, file_name, PGSIZE);
+
+	//delimiter is set to a space.
+ 	const char * delim=" ";
+ 	char * saveptr;
+
+	//Get name of file	
+	char * thread_name=strtok_r(copy_fn,delim,&saveptr);
+
+	/* FIXME */
+	printf("\nin process_execute() file_name is %s\n\n", thread_name);
+
+//---------------------------------------------------
+
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+
+	printf("\nin process_execute() exited Thread Create\n\n");
+
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   return tid;
@@ -54,6 +75,10 @@ process_execute (const char *file_name)
 static void
 start_process (void *file_name_)
 {
+
+	/* FIXME*/
+	printf("\nin start_process file_name is %s\n\n", file_name_);
+
   char *file_name = file_name_;
   struct intr_frame if_;
   bool success;
@@ -92,6 +117,7 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
+	while(1);
   return -1;
 }
 
@@ -225,11 +251,30 @@ load (const char *file_name, void (**eip) (void), void **esp)
     goto done;
   process_activate ();
 
+
+//---------------------------------------------------
+
+	//Tokenizing input	
+	char * copy_fn = palloc_get_page(0);
+ 	strlcpy (copy_fn, file_name, PGSIZE);
+
+	//delimiter is set to a space.
+ 	const char * delim=" ";
+ 	char * saveptr;
+
+	//Get name of file	
+	char * thread_name=strtok_r(copy_fn,delim,&saveptr);
+
+	/* FIXME */
+	printf("\nin load() file_name is %s\n\n", thread_name);
+
+//---------------------------------------------------
+
   /* Open executable file. */
-  file = filesys_open (file_name);
+  file = filesys_open (thread_name);
   if (file == NULL) 
     {
-      printf ("load: %s: open failed\n", file_name);
+      printf ("load: %s: open failed\n", thread_name);
       goto done; 
     }
 
@@ -305,9 +350,12 @@ load (const char *file_name, void (**eip) (void), void **esp)
         }
     }
 
-  /* Set up stack. */
+	printf("\nin load() preparing to set up stack\n\n");
+
+	/* Set up stack. */
   if (!setup_stack (esp,file_name))
     goto done;
+	
 
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
@@ -315,11 +363,13 @@ load (const char *file_name, void (**eip) (void), void **esp)
   success = true;
 
  done:
+	
+	printf("\nin load() exiting\n\n");
   /* We arrive here whether the load is successful or not. */
   file_close (file);
   return success;
 }
-
+
 /* load() helpers. */
 
 static bool install_page (void *upage, void *kpage, bool writable);
@@ -433,6 +483,9 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 static bool
 setup_stack (void **esp, const char * cmd_line) 
 {
+	/* FIXME */
+	printf("\nin setup_stack() command line is %s\n\n",cmd_line);
+
   uint8_t *kpage;
   bool success = false;
 
@@ -473,29 +526,42 @@ static bool setup_stack_helper (const char * cmd_line, uint8_t * kpage, uint8_t 
 	//Tokenize and push on stack. Also save address for later use.
 	char * temp=strtok_r(input,delim,&saveptr);
  	while(temp!=NULL){
+		printf("arg%d is %s\n",argc,temp);
 		curadr=push (kpage, &ofs, temp, sizeof(char)*(strlen(temp)+1));
-		alladr[argc]=curadr;
+		printf("address of %d is %p\n",argc,(void*)curadr);
+		alladr[argc]=(void*)curadr;
 		argc++;
  		temp=strtok_r(NULL,delim,&saveptr);
  	}
-		
+	
+	printf("pushing a null\n");	
+	
 	//push null
-	curadr=push (kpage, &ofs, null, sizeof(null));
+	curadr=push (kpage, &ofs, &null, sizeof(null));
+
+	printf("pushed a null\n");	
+	
+	printf("\nargc is %d\n\n", argc);
 
 	//push addresses of arguments
 	int i=argc-1;
 	for(;i>=0;i--){
-		push (kpage, &ofs, alladr[argc], sizeof(void*));
+		printf("address of %d is %p\n",i,alladr[i]);
+		push (kpage, &ofs, alladr[i], sizeof(void*));
 	}
+	printf("\npushed addresses of arguments\n\n");
 
 	//push argv
-	push (kpage, &ofs, alladr, sizeof(void *));
+	push (kpage, &ofs, &alladr, sizeof(void *));
+
+	printf("\npushed argv\n\n");
 
 	//push argc
-	push (kpage, &ofs, argc, sizeof(argc));
+	push (kpage, &ofs, &argc, sizeof(argc));
 
 	//push fake return
-	*esp=push (kpage, &ofs, null, sizeof(null));
+	printf("pushing another null\n");	
+	push (kpage, &ofs, &null, sizeof(null));
   
   //##Parse and put in command line arguments, push each value
   //##if any push() returns NULL, return false
@@ -510,7 +576,7 @@ static bool setup_stack_helper (const char * cmd_line, uint8_t * kpage, uint8_t 
   //##Should you check for NULL returns?
   
   //##Set the stack pointer. IMPORTANT! Make sure you use the right value here...
-  //*esp = upage + ofs;
+  *esp = upage + ofs;
  	
 	//If you made it this far, everything seems good, return true
 	return true;
