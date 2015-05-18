@@ -34,6 +34,7 @@ process_execute (const char *file_name)
 {
   char *fn_copy;
   tid_t tid;
+  struct thread * cur = thread_current ();
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
@@ -42,11 +43,31 @@ process_execute (const char *file_name)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
 
+  char s[100];
+  strlcpy (s, file_name, strlen(file_name)+1);  //putting cmdline in s
+
+  char *save_ptr; // for spliter
+  char * file = strtok_r (s, " ", &save_ptr);
+
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (file, PRI_DEFAULT, start_process, fn_copy);
 
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
+
+  struct thread *child = get_thread_tid (tid);
+
+
+
+  if(!child == NULL)
+  {
+    child->parent = cur;  // if the child exists set its parent to the current thread
+  }
+  
+
+  if(child->load == 0)  // if load not successful
+    return -1;
+
   return tid;
 }
 
@@ -93,8 +114,27 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-	while(1);
-    return -1;
+	struct thread *curr = thread_current();
+	if(list_empty(&curr->children))
+	{
+		return -1;
+	}
+	
+	struct list_elem *curr_child;
+	for(curr_child = list_begin(&curr->children); curr_child != list_end(&curr->children);
+			curr_child = list_next(curr_child))
+	{
+		struct thread *temp = list_entry(curr_child, struct thread, child_elem);
+		tid_t tid = temp->tid;
+		if(tid == child_tid)
+		{
+			list_remove(&temp->child_elem);
+			
+			int status = temp->exit_status;
+			return status;
+		}
+	}
+	return -1;
 }
 
 /* Free the current process's resources. */

@@ -84,6 +84,28 @@ static tid_t allocate_tid (void);
 
    It is not safe to call thread_current() until this function
    finishes. */
+  
+struct thread *
+get_thread_tid (tid_t tid)
+{
+  struct thread *current =  thread_current(); 
+
+  struct list_elem *thread_elem;
+
+  // loop through the children of currently running thread
+  for (thread_elem = list_begin (&all_list); thread_elem != list_end (&all_list);
+            thread_elem = list_next (thread_elem))
+  {
+    struct thread *t = list_entry (thread_elem, struct thread, allelem);
+   
+    if (tid == t->tid)
+    {
+      return t;
+    }   
+  } 
+
+  return NULL;
+} 
 void
 thread_init (void) 
 {

@@ -93,9 +93,15 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
     
-    struct file *file_pointers[150]; // array of open files indexed by fd
-    int fd_index; // the index of the next file to be opened
+    struct file *file_pointers[150]; 
+    int fd_index; 
     
+    struct thread *parent; 
+    struct list children;         
+    struct list_elem child_elem; 
+    
+     
+
     int exit_status;
     int load;
     struct file * file_keep;
@@ -144,5 +150,7 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+struct thread * get_thread_tid (tid_t tid);
 
 #endif /* threads/thread.h */
