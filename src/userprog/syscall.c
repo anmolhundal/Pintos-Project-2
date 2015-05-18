@@ -27,15 +27,15 @@ static void syscall_handler (struct intr_frame *);
 
 int user_to_kernel_ptr(const void * vaddr)
 {
-	if(!is_user_vaddr(vaddr)){
-		thread_exit();
-		return 0;
-	}
-	void *ptr=pagedir_get_page(thread_current()->pagedir,vaddr);
-	if(!ptr){
-		thread_exit();
-		return 0;
-	}
+	//if(!is_user_vaddr(vaddr)){
+	//	thread_exit();
+	//	return 0;
+	//}
+	void * ptr = pagedir_get_page ( thread_current()->pagedir, vaddr);
+	//if(!ptr){
+	//	thread_exit();
+    //		return 0;
+	//}
 	return (int) ptr;
 }
 
@@ -49,11 +49,10 @@ syscall_init (void)
 static void
 syscall_handler (struct intr_frame *f UNUSED)
 {
-		printf("\nin syscall handler\n\n");
 		int i, arg[MAX_ARGS];
 		for(i=0;i<MAX_ARGS;i++)
 		{
-			arg[i]=*((int *) f->esp+1);
+			arg[i]=*((int *) f->esp+i);
 		}
         int * esp = f->esp;
         is_mapped(esp);
@@ -99,13 +98,18 @@ syscall_handler (struct intr_frame *f UNUSED)
 			f->eax = read ( (esp+1), *(esp+2), (esp+3) );
             break;
         case SYS_WRITE:
-			//is_mapped(esp+1);
-			//is_mapped(*(esp+2));
-			//is_mapped(esp+3);
-			//f->eax = write ( (esp+1), *(esp+2), (esp+3) );
-			//void * arg2=user_to_kernel_ptr((const void *)(esp+2));
-			//f->eax = write ( (esp+1), arg2, (esp+3) );
-          	break;
+			/*
+            is_mapped(esp+1);
+			is_mapped(*(esp+2));
+			is_mapped(esp+3);
+			f->eax = write ( (esp+1), *(esp+2), (esp+3) );
+			*/
+		    ///*	
+			arg[2]=user_to_kernel_ptr((const void *) arg[2]);
+            //printf("Calling write\n");
+			f->eax = write (arg[1], (const void *)arg[2], (unsigned) arg[3]);
+          	//*/
+            break;
         case SYS_SEEK:
 			is_mapped(esp+1);
 			is_mapped(esp+2);
@@ -119,9 +123,9 @@ syscall_handler (struct intr_frame *f UNUSED)
 			is_mapped(esp+1);
 			close ( (esp+1) );
           	break;
-        default:
-			thread_exit();
-			break;
+        //default:
+		//	thread_exit();
+		//	break;
     }
 }
 
@@ -239,7 +243,15 @@ int read (int fd, void *buffer, unsigned size)
 
 int write (int fd, const void *buffer, unsigned size)
 {
-	printf("\nin write\n\n");
+    /*
+    //FIXME
+	printf("in write\n");
+    if(buffer==NULL)    printf("Null Buffer\n");
+    printf("buffer is %s with size %d\n",(char *)buffer, size);
+    char * str="Hello";
+	putbuf(str,5);
+    */
+
 	//lock_acquire(&sys_lock);
 	struct thread *cur = thread_current();
 	if(fd > 0 && fd <= cur->fd_index && buffer != NULL)
@@ -248,7 +260,6 @@ int write (int fd, const void *buffer, unsigned size)
 		if(fd == STDOUT_FILENO)
 		{
 			putbuf(buffer, size);
-			printf("\nprinted\n\n");
 			//lock_release(&sys_lock);
 			return size;
 		}
@@ -264,10 +275,10 @@ int write (int fd, const void *buffer, unsigned size)
 			//}
 		
 			int result = file_write(cur->file_pointers[fd], buffer, size);
-			lock_release(&sys_lock);
+			//lock_release(&sys_lock);
 			return result;
 		}
-		lock_release(&sys_lock);
+		//lock_release(&sys_lock);
 		return size;
 	}
 	//if it had bad file descriptor
