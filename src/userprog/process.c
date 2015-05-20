@@ -17,6 +17,7 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "userprog/syscall.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -55,18 +56,18 @@ process_execute (const char *file_name)
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
 
-  struct thread *child = get_thread_tid (tid);
+ // struct child_process *child = get_thread_tid (tid);
 
 
 
-  if(!child == NULL)
-  {
-    child->parent = cur;  // if the child exists set its parent to the current thread
-  }
+  //if(!child == NULL)
+  //{
+  //  child->parent = cur;  // if the child exists set its parent to the current thread
+ // }
   
 
-  if(child->load == 0)  // if load not successful
-    return -1;
+  //if(child->load == 0)  // if load not successful
+  //  return -1;
 
   return tid;
 }
@@ -114,27 +115,26 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-	struct thread *curr = thread_current();
-	if(list_empty(&curr->children))
-	{
-		return -1;
-	}
-	
-	struct list_elem *curr_child;
-	for(curr_child = list_begin(&curr->children); curr_child != list_end(&curr->children);
-			curr_child = list_next(curr_child))
-	{
-		struct thread *temp = list_entry(curr_child, struct thread, child_elem);
-		tid_t tid = temp->tid;
-		if(tid == child_tid)
-		{
-			list_remove(&temp->child_elem);
-			
-			int status = temp->exit_status;
-			return status;
-		}
-	}
-	return -1;
+	//printf("\nI am in process wait\n\n");
+  struct child_process* cp = get_child_process(child_tid);
+  if (!cp)
+    {
+      return ERROR;
+    }
+  if (cp->wait)
+    {
+      return ERROR;
+    }
+  cp->wait = true;
+  //printf("\nGoing to perform a wait\n\n");
+  while (!cp->exit)
+    {
+      barrier();
+    }
+    //printf("\nExited wait\n\n");
+  int status = cp->status;
+  remove_child_process(cp);
+  return status;
 }
 
 /* Free the current process's resources. */
@@ -143,6 +143,22 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
+  
+  //printf("\nClosing open files\n\n");
+  
+  process_close_file(CLOSE_ALL);
+  
+ // printf("\nClosed all files\n\n");
+  
+  remove_child_processes();
+  
+  //printf("\nRemoved child processes\n\n");
+  
+  if(thread_alive(cur->parent))
+  {
+	 // printf("\nEntered if\n\n");
+	  cur->cp->exit = true;
+  }
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -552,7 +568,7 @@ static bool setup_stack_helper (const char * cmd_line, uint8_t * kpage, uint8_t 
     memcpy (*esp, &null, sizeof(&null));
 	
     // Use for debugging
-    hex_dump(0, *esp, (int) ((size_t) PHYS_BASE - (size_t) *esp), true);	
+    //hex_dump(0, *esp, (int) ((size_t) PHYS_BASE - (size_t) *esp), true);	
 
 	return true;
 }
