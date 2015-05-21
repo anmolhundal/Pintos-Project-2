@@ -35,7 +35,7 @@ process_execute (const char *file_name)
 {
   char *fn_copy;
   tid_t tid;
-  struct thread * cur = thread_current ();
+  //struct thread * cur = thread_current ();
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
@@ -146,7 +146,7 @@ process_exit (void)
   
   //printf("\nClosing open files\n\n");
   
-  process_close_file(CLOSE_ALL);
+  process_close_file(-2);
   
  // printf("\nClosed all files\n\n");
   
@@ -154,7 +154,7 @@ process_exit (void)
   
   //printf("\nRemoved child processes\n\n");
   
-  if(thread_alive(cur->parent))
+  if(active_thread(cur->parent))
   {
 	 // printf("\nEntered if\n\n");
 	  cur->cp->exit = true;

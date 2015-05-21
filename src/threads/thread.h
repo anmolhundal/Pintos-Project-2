@@ -142,7 +142,7 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
-bool thread_alive (int pid);
+bool active_thread (int pid);
 
 struct thread * get_thread_tid (tid_t tid);
 

@@ -15,43 +15,32 @@
 #include "userprog/process.h"
 
 #define MAX_ARGS 4
-
-struct lock filesys_lock;
-
-struct process_file {
+#define BOTTOM_USER_VADDR_SPACE ((void *) 0x08048000)
+//
+struct lock sys_lock;
+//
+struct file_elements {
   struct file *file;
   int fd;
   struct list_elem elem;
 };
-
-
+//
 static void syscall_handler (struct intr_frame *);
-
 int process_add_file (struct file *f);
 struct file* process_get_file (int fd);
 void process_close_file (int fd);
-
-int user_to_kernel_ptr(const void * vaddr)
-{
-	//if(!is_user_vaddr(vaddr)){
-	//	thread_exit();
-	//	return 0;
-	//}
-	void * ptr = pagedir_get_page ( thread_current()->pagedir, vaddr);
-	//if(!ptr){
-	//	thread_exit();
-    //		return 0;
-	//}
-	return (int) ptr;
-}
-
+int is_mapped(const void *vaddr);
+void get_arg (struct intr_frame *f, int *arg, int n);
+void check_vaddr(const void *vaddr);
+void check_buff(void* buffer, unsigned size);
+//
 void
 syscall_init (void)
 {
     intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
-    lock_init(&filesys_lock);
+    lock_init(&sys_lock);
 }
-
+//good
 static void
 syscall_handler (struct intr_frame *f UNUSED)
 {
@@ -60,382 +49,497 @@ syscall_handler (struct intr_frame *f UNUSED)
 		{
 			arg[i]=*((int *) f->esp+i);
 		}
-        int * esp = f->esp;
-        is_mapped(esp);
-    
+      
+        check_vaddr((const void*) f->esp);
+		switch (* (int *) f->esp)
+		{
+			case SYS_HALT:
+			{
+				halt(); 
+				break;
+			}
+			case SYS_EXIT:
+			{
+				get_arg(f, &arg[0], 1);
+				exit(arg[0]);
+				break;
+			}
+			case SYS_EXEC:
+			{
+				get_arg(f, &arg[0], 1);
+				arg[0] = is_mapped((const void *) arg[0]);
+				f->eax = exec((const char *) arg[0]); 
+				break;
+			}
+			case SYS_WAIT:
+			{
+				get_arg(f, &arg[0], 1);
+				f->eax = wait(arg[0]);
+				break;
+			}
+			case SYS_CREATE:
+			{
+				get_arg(f, &arg[0], 2);
+				arg[0] = is_mapped((const void *) arg[0]);
+				f->eax = create((const char *)arg[0], (unsigned) arg[1]);
+				break;
+			}
+			case SYS_REMOVE:
+			{
+				get_arg(f, &arg[0], 1);
+				arg[0] = is_mapped((const void *) arg[0]);
+				f->eax = remove((const char *) arg[0]);
+				break;
+			}
+			case SYS_OPEN:
+			{
+				get_arg(f, &arg[0], 1);
+				arg[0] = is_mapped((const void *) arg[0]);
+				f->eax = open((const char *) arg[0]);
+				break; 		
+			}
+			case SYS_FILESIZE:
+			{
+				get_arg(f, &arg[0], 1);
+				f->eax = filesize(arg[0]);
+				break;
+			}
+			case SYS_READ:
+			{
+				get_arg(f, &arg[0], 3);
+				check_buff((void *) arg[1], (unsigned) arg[2]);
+				arg[1] = is_mapped((const void *) arg[1]);
+				f->eax = read(arg[0], (void *) arg[1], (unsigned) arg[2]);
+				break;
+			}
+			case SYS_WRITE:
+			{ 
+				get_arg(f, &arg[0], 3);
+				check_buff((void *) arg[1], (unsigned) arg[2]);
+				arg[1] = is_mapped((const void *) arg[1]);
+				f->eax = write(arg[0], (const void *) arg[1], (unsigned) arg[2]);
+				break;
+			}
+			case SYS_SEEK:
+			{
+				get_arg(f, &arg[0], 2);
+				seek(arg[0], (unsigned) arg[1]);
+				break;
+			} 
+			case SYS_TELL:
+			{ 
+				get_arg(f, &arg[0], 1);
+				f->eax = tell(arg[0]);
+				break;
+			}
+			case SYS_CLOSE:
+			{ 
+				get_arg(f, &arg[0], 1);
+				close(arg[0]);
+				break;
+			}
 		//Dispatch syscall to handler	
-		switch (*esp){
-        case SYS_HALT:
-            halt();
-            break;
-        case SYS_EXIT:
-			is_mapped(esp+1);
-          	exit(*(esp+1));
-            break;
-    	case SYS_EXEC:
-			is_mapped(*(esp+1));
-			f->eax = exec (*(esp+1));
-            break;
-        case SYS_WAIT:
-			is_mapped(esp+1);
-            f->eax = wait(*(esp+1));
-            break;
-        case SYS_CREATE:
-			is_mapped(*(esp+1));
-			is_mapped(esp+2);
-			f->eax = create ( *(esp+1), (esp+2));
-            break;
-        case SYS_REMOVE:
-			is_mapped(*(esp+1));
-			f->eax = remove (*(esp+1));
-            break;
-        case SYS_OPEN:
-			is_mapped(*(esp+1));
-			f->eax = open (*(esp+1));
-            break;
-        case SYS_FILESIZE:
-			is_mapped(esp+1);
-			f->eax = filesize ( esp+1 );
-            break;
-        case SYS_READ:
-			is_mapped(esp+1);
-			is_mapped(*(esp+2));
-			is_mapped(esp+3);
-			f->eax = read ( (esp+1), *(esp+2), (esp+3) );
-            break;
-        case SYS_WRITE:
-			
-           // is_mapped(esp+1);
-			//is_mapped(*(esp+2));
-			//is_mapped(esp+3);
-			//f->eax = write ( (esp+1), *(esp+2), (esp+3) );
-			arg[2]=user_to_kernel_ptr((const void *) arg[2]);
-           // printf("Calling write\n");
-			f->eax = write (arg[1], (const void *)arg[2], (unsigned) arg[3]);
-          	
-            break;
-        case SYS_SEEK:
-			is_mapped(esp+1);
-			is_mapped(esp+2);
-			seek ( (esp+1), (esp+2) );
-          	break;
-        case SYS_TELL:
-			is_mapped(esp+1);
-			f->eax = tell ( (esp+1) );
-          	break;
-        case SYS_CLOSE:
-			is_mapped(esp+1);
-			close ( (esp+1) );
-          	break;
-        //default:
-		//	thread_exit();
-		//	break;
+		//~ switch (*esp){
+        //~ case SYS_HALT:
+            //~ halt();
+            //~ break;
+        //~ case SYS_EXIT:
+			//~ is_mapped(esp+1);
+          	//~ exit(*(esp+1));
+            //~ break;
+    	//~ case SYS_EXEC:
+			//~ is_mapped(*(esp+1));
+			//~ f->eax = exec (*(esp+1));
+            //~ break;
+        //~ case SYS_WAIT:
+			//~ is_mapped(esp+1);
+            //~ f->eax = wait(*(esp+1));
+            //~ break;
+        //~ case SYS_CREATE:
+			//~ is_mapped(*(esp+1));
+			//~ is_mapped(esp+2);
+			//~ f->eax = create ( *(esp+1), (esp+2));
+            //~ break;
+        //~ case SYS_REMOVE:
+			//~ is_mapped(*(esp+1));
+			//~ f->eax = remove (*(esp+1));
+            //~ break;
+        //~ case SYS_OPEN:
+			//~ is_mapped(*(esp+1));
+			//~ f->eax = open (*(esp+1));
+            //~ break;
+        //~ case SYS_FILESIZE:
+			//~ is_mapped(esp+1);
+			//~ f->eax = filesize ( esp+1 );
+            //~ break;
+        //~ case SYS_READ:
+			//~ is_mapped(esp+1);
+			//~ is_mapped(*(esp+2));
+			//~ is_mapped(esp+3);
+			//~ f->eax = read ( (esp+1), *(esp+2), (esp+3) );
+            //~ break;
+        //~ case SYS_WRITE:
+			//~ 
+           //~ // is_mapped(esp+1);
+			//~ //is_mapped(*(esp+2));
+			//~ //is_mapped(esp+3);
+			//~ //f->eax = write ( (esp+1), *(esp+2), (esp+3) );
+			//~ arg[2]=user_to_kernel_ptr((const void *) arg[2]);
+           //~ // printf("Calling write\n");
+			//~ f->eax = write (arg[1], (const void *)arg[2], (unsigned) arg[3]);
+          	//~ 
+            //~ break;
+        //~ case SYS_SEEK:
+			//~ is_mapped(esp+1);
+			//~ is_mapped(esp+2);
+			//~ seek ( (esp+1), (esp+2) );
+          	//~ break;
+        //~ case SYS_TELL:
+			//~ is_mapped(esp+1);
+			//~ f->eax = tell ( (esp+1) );
+          	//~ break;
+        //~ case SYS_CLOSE:
+			//~ is_mapped(esp+1);
+			//~ close ( (esp+1) );
+          	//~ break;
+        //~ //default:
+		//~ //	thread_exit();
+		//~ //	break;
     }
 }
-
+//good
 void halt (void)
 {
   	shutdown_power_off();
 }
-
-
+//good
 void exit (int status)
 {
 	struct thread *cur = thread_current();
-	if (thread_alive(cur->parent))
+	if (active_thread(cur->parent))
     {
       cur->cp->status = status;
     }
 	printf ("%s: exit(%d)\n", cur->name, status);
 	thread_exit();
 }
-//
+//good
 pid_t exec (const char *cmd_line)
 {
 	pid_t pid = process_execute(cmd_line);
 	struct child_process* cp = get_child_process(pid);
-	ASSERT(cp);
-	while (cp->load == NOT_LOADED)
+	//ASSERT(cp);
+	while (cp->load == 0)
     {
       barrier();
     }
-	if (cp->load == LOAD_FAIL)
+	if (cp->load == 2)
     {
       return ERROR;
     }
 	return pid;
 }
-//
+//good
 int wait (pid_t pid)
 {
 	return process_wait(pid);
 }
 
-//
+//good
 bool create (const char *file, unsigned initial_size)
 {
-	lock_acquire(&filesys_lock);
+	lock_acquire(&sys_lock);
 	bool result = filesys_create(file, initial_size);
-	lock_release(&filesys_lock);
+	lock_release(&sys_lock);
 	return result;
    
 }
-//
+//good
 bool remove (const char *file)
 {
-	lock_acquire(&filesys_lock);
+	lock_acquire(&sys_lock);
 	bool result = filesys_remove (file);
-	lock_release(&filesys_lock);
+	lock_release(&sys_lock);
 	return result;
     
 }
-//
+//good
 int open (const char *file)
 {
-	lock_acquire(&filesys_lock);
-	struct file *f = filesys_open(file);
-	if (!f)
+	int fd;
+	lock_acquire(&sys_lock);
+	struct file *temp_f = filesys_open(file);
+	if (!temp_f)
     {
-      lock_release(&filesys_lock);
+      lock_release(&sys_lock);
       return ERROR;
     }
-	int fd = process_add_file(f);
-	lock_release(&filesys_lock);
+	fd = process_add_file(temp_f);
+	lock_release(&sys_lock);
 	return fd;
 }
 
-//
+//good
 int filesize (int fd)
 {
-	lock_acquire(&filesys_lock);
-	struct file *f = process_get_file(fd);
-	if (!f)
+	int size;
+	lock_acquire(&sys_lock);
+	struct file *file = process_get_file(fd);
+	if (!file)
     {
-      lock_release(&filesys_lock);
+      lock_release(&sys_lock);
       return ERROR;
     }
-	int size = file_length(f);
-	lock_release(&filesys_lock);
+	size = file_length(file);
+	lock_release(&sys_lock);
 	return size;
 }
-//
+//good
 int read (int fd, void *buffer, unsigned size)
 {
-	lock_acquire(&filesys_lock);
+	lock_acquire(&sys_lock);
 	int result;
-	//struct thread *cur = thread_current();
 	if(fd == STDIN_FILENO)
 	{
 		unsigned i;
-		uint8_t *b_ptr = (uint8_t *) buffer;
+		uint8_t *buff_ptr = (uint8_t *) buffer;
 		for(i = 0; i < size; i++)
 		{
-			b_ptr[i] = input_getc();
+			buff_ptr[i] = input_getc();
 		}
-		lock_release(&filesys_lock);
+		lock_release(&sys_lock);
 		return size;
 	}
-	struct file *f = process_get_file(fd);
-	if (!f)
+	struct file *file = process_get_file(fd);
+	if (!file)
     {
-      lock_release(&filesys_lock);
+      lock_release(&sys_lock);
       return ERROR;
     }
-	result = file_read(f, buffer, size);
-	lock_release(&filesys_lock);
+	result = file_read(file, buffer, size);
+	lock_release(&sys_lock);
 	return result;
 }
-
+//good
 int write (int fd, const void *buffer, unsigned size)
 {
-	//printf("\n in write\n\n");
-	//printf("\nPassed fd is %d\n\n",fd);
+	int result;
 	if (fd == STDOUT_FILENO)
     {
-		//printf("\nGonna putbuf\n\n");
+		
       putbuf(buffer, size);
       return size;
     }
-	lock_acquire(&filesys_lock);
-	struct file *f = process_get_file(fd);
-	if (!f)
+	lock_acquire(&sys_lock);
+	struct file *file = process_get_file(fd);
+	if (!file)
     {
-      lock_release(&filesys_lock);
+      lock_release(&sys_lock);
       return ERROR;
     }
-	int bytes = file_write(f, buffer, size);
-	lock_release(&filesys_lock);
-	return bytes;  
+	result = file_write(file, buffer, size);
+	lock_release(&sys_lock);
+	return result;  
 }
-//
+//good
 void seek (int fd, unsigned position)
 {
-	lock_acquire(&filesys_lock);
-	struct file *f = process_get_file(fd);
-	if (!f)
+	lock_acquire(&sys_lock);
+	struct file *file = process_get_file(fd);
+	if (!file)
     {
-      lock_release(&filesys_lock);
+      lock_release(&sys_lock);
       return;
     }
-	file_seek(f, position);
-	lock_release(&filesys_lock);
+	file_seek(file, position);
+	lock_release(&sys_lock);
 
 }
-//
+//good
 unsigned tell (int fd)
 {
-	lock_acquire(&filesys_lock);
-	struct file *f = process_get_file(fd);
-	if (!f)
+	lock_acquire(&sys_lock);
+	struct file *file = process_get_file(fd);
+	if (!file)
     {
-      lock_release(&filesys_lock);
+      lock_release(&sys_lock);
       return ERROR;
     }
-	off_t offset = file_tell(f);
-	lock_release(&filesys_lock);
+	off_t offset = file_tell(file);
+	lock_release(&sys_lock);
 	return offset;
 
 }
-//
+//good
 void close (int fd)
 {
-	lock_acquire(&filesys_lock);
+	lock_acquire(&sys_lock);
 	process_close_file(fd);
-	lock_release(&filesys_lock);
-}
-//
-//void
-//close_all_files()
-//{
-//	int i;
-//	for(i = 2; i < 150; i++)
-//	{
-//		close(i); 
-//	}  
-//}        
-//
-void
-is_mapped(int* esp) 
-{
-	struct thread *cur = thread_current ();
-	
-	if(esp == NULL)
-	{
-		printf ("%s: exit(%d)\n", cur->name, cur->status);
-		thread_exit ();
-	}
-	
-	if(is_kernel_vaddr (esp))
-	{
-		printf ("%s: exit(%d)\n", cur->name, cur->status);
-		thread_exit ();	
-	}
-    
-    if( pagedir_get_page (cur->pagedir, esp) == NULL )
-    {
-		printf ("%s: exit(%d)\n", cur->name, cur->status);
-		thread_exit ();
-	}
+	lock_release(&sys_lock);
 }
 
+//~ void
+//~ is_mapped(int* esp) 
+//~ {
+	//~ struct thread *cur = thread_current ();
+	//~ 
+	//~ if(esp == NULL)
+	//~ {
+		//~ printf ("%s: exit(%d)\n", cur->name, cur->status);
+		//~ thread_exit ();
+	//~ }
+	//~ 
+	//~ if(is_kernel_vaddr (esp))
+	//~ {
+		//~ printf ("%s: exit(%d)\n", cur->name, cur->status);
+		//~ thread_exit ();	
+	//~ }
+    //~ 
+    //~ if( pagedir_get_page (cur->pagedir, esp) == NULL )
+    //~ {
+		//~ printf ("%s: exit(%d)\n", cur->name, cur->status);
+		//~ thread_exit ();
+	//~ }
+//~ }
+//good
 struct child_process* add_child_process (int pid)
 {
-  struct child_process* cp = malloc(sizeof(struct child_process));
-  cp->pid = pid;
-  cp->load = NOT_LOADED;
-  cp->wait = false;
-  cp->exit = false;
-  lock_init(&cp->wait_lock);
-  list_push_back(&thread_current()->child_list,
-		 &cp->elem);
-  return cp;
+	size_t cp_size = sizeof(struct child_process);
+	struct child_process* cp = malloc(cp_size);
+	cp->pid = pid;
+	cp->load = 0;
+	cp->wait = false;
+	cp->exit = false;
+	lock_init(&cp->wait_lock);
+	list_push_back(&thread_current()->child_list, &cp->elem);
+	return cp;
 }
-
+//good
 struct child_process* get_child_process (int pid)
 {
-  struct thread *t = thread_current();
-  struct list_elem *e;
+	struct thread *temp = thread_current();
+	struct list_elem *e;
 
-  for (e = list_begin (&t->child_list); e != list_end (&t->child_list);
-       e = list_next (e))
-        {
-          struct child_process *cp = list_entry (e, struct child_process, elem);
-          if (pid == cp->pid)
+	for (e = list_begin (&temp->child_list); e != list_end (&temp->child_list); e = list_next (e))
+    {
+		struct child_process *cp = list_entry (e, struct child_process, elem);
+		if (pid == cp->pid)
 	    {
 	      return cp;
 	    }
-        }
-  return NULL;
+    }
+    return NULL;
 }
-
+//good
 void remove_child_process (struct child_process *cp)
 {
   list_remove(&cp->elem);
-  free(cp);
+  free(cp);//deallocates memoray 
 }
-
+//good
 void remove_child_processes (void)
 {
-  struct thread *t = thread_current();
-  struct list_elem *next, *e = list_begin(&t->child_list);
+	struct thread *temp = thread_current();
+	struct list_elem *next, *e = list_begin(&temp->child_list);
 
-  while (e != list_end (&t->child_list))
+	while (e != list_end (&temp->child_list))
     {
-      next = list_next(e);
-      struct child_process *cp = list_entry (e, struct child_process,
-					     elem);
-      list_remove(&cp->elem);
-      free(cp);
-      e = next;
+		next = list_next(e);
+		struct child_process *cp = list_entry (e, struct child_process, elem);
+		list_remove(&cp->elem);
+		free(cp);//deallocates memoray 
+		e = next;
     }
 }
-
+//good
 int process_add_file (struct file *f)
 {
-  struct process_file *pf = malloc(sizeof(struct process_file));
-  pf->file = f;
-  pf->fd = thread_current()->fd;
-  thread_current()->fd++;
-  list_push_back(&thread_current()->file_list, &pf->elem);
-  return pf->fd;
+	size_t fe_size = sizeof(struct file_elements);
+	struct file_elements *fe = malloc(fe_size);
+	fe->file = f;
+	fe->fd = thread_current()->fd;
+	thread_current()->fd++;
+	list_push_back(&thread_current()->file_list, &fe->elem);
+	return fe->fd;
 }
-
+//good
 struct file* process_get_file (int fd)
 {
-  struct thread *t = thread_current();
-  struct list_elem *e;
+	struct thread *temp = thread_current();
+	struct list_elem *e;
 
-  for (e = list_begin (&t->file_list); e != list_end (&t->file_list);
-       e = list_next (e))
-        {
-          struct process_file *pf = list_entry (e, struct process_file, elem);
-          if (fd == pf->fd)
-	    {
-	      return pf->file;
-	    }
-        }
-  return NULL;
+	for(e = list_begin (&temp->file_list); e != list_end (&temp->file_list); e = list_next (e))
+	{
+		struct file_elements *fe = list_entry (e, struct file_elements, elem);
+		if (fd == fe->fd)
+		{
+			return fe->file;
+		}
+	}
+	return NULL;
 }
-
+//good
 void process_close_file (int fd)
 {
-  struct thread *t = thread_current();
-  struct list_elem *next, *e = list_begin(&t->file_list);
+	struct thread *temp = thread_current();
+	struct list_elem *next, *e = list_begin(&temp->file_list);
 
-  while (e != list_end (&t->file_list))
+	while (e != list_end (&temp->file_list))
     {
-      next = list_next(e);
-      struct process_file *pf = list_entry (e, struct process_file, elem);
-      if (fd == pf->fd || fd == CLOSE_ALL)
-	{
-	  file_close(pf->file);
-	  list_remove(&pf->elem);
-	  free(pf);
-	  if (fd != CLOSE_ALL)
-	    {
-	      return;
-	    }
-	}
-      e = next;
+		next = list_next(e);
+		struct file_elements *fe = list_entry (e, struct file_elements, elem);
+		if (fd == fe->fd || fd == -2)
+		{
+			file_close(fe->file);
+			list_remove(&fe->elem);
+			free(fe);//deallocates memory pointed to by fe
+			if (fd != -2)
+			{
+			  return;
+			}
+		}
+		e = next;
     }
+}
+//good
+void get_arg(struct intr_frame *f, int *arg, int n)
+{
+  int i;
+  int *ptr;
+  for (i = 0; i < n; i++)
+    {
+      ptr = (int *) f->esp + i + 1;
+      check_vaddr((const void *) ptr);
+      arg[i] = *ptr;
+    }
+}
+//good
+void check_buff(void* buffer, unsigned size)
+{
+	unsigned i;
+	char* local_buff = (char *) buffer;
+	for (i = 0; i < size; i++)
+    {
+      check_vaddr((const void*) local_buff);
+      local_buff++;
+    }
+}
+//good
+void check_vaddr (const void *vaddr)
+{
+	if (!is_user_vaddr(vaddr) || vaddr < BOTTOM_USER_VADDR_SPACE)
+    {
+      exit(ERROR);
+    }
+}
+//good
+int is_mapped(const void *vaddr)
+{
+	check_vaddr(vaddr);
+	void *ptr = pagedir_get_page(thread_current()->pagedir, vaddr);
+	if (!ptr)
+	{
+		exit(ERROR);
+	}
+	return (int) ptr;
 }

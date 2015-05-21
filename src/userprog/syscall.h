@@ -5,10 +5,10 @@
 #include "threads/synch.h"
 
 #define ERROR -1
-#define CLOSE_ALL -2
-#define NOT_LOADED 0
-#define LOAD_SUCCESS 1
-#define LOAD_FAIL 2
+//~ #define CLOSE_ALL -2
+//~ #define NOT_LOADED 0
+//~ #define LOAD_SUCCESS 1
+//~ #define LOAD_FAIL 2
 
 struct child_process {
   int pid;
@@ -39,7 +39,8 @@ void seek (int fd, unsigned position);
 unsigned tell (int fd);
 void close (int fd);
 void close_all_files(void);
-void is_mapped(int* esp);
 void syscall_init (void);
+
+
 
 #endif /* userprog/syscall.h */
