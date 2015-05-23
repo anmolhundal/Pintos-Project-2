@@ -50,8 +50,8 @@ syscall_handler (struct intr_frame *f UNUSED)
 			arg[i]=*((int *) f->esp+i);
 		}
       
-        check_vaddr((const void*) f->esp);
-		switch (* (int *) f->esp)
+    int pesp=is_mapped((const void*) f->esp);
+		switch (* (int *) pesp)
 		{
 			case SYS_HALT:
 			{
@@ -117,9 +117,7 @@ syscall_handler (struct intr_frame *f UNUSED)
 				get_arg(f, &arg[0], 3);
 				check_buff((void *) arg[1], (unsigned) arg[2]);
 				arg[1] = is_mapped((const void *) arg[1]);
-        //printf("\nAfter is mapped\n\n");
 				f->eax = write(arg[0], (const void *) arg[1], (unsigned) arg[2]);
-        //printf("\nAfter write\n\n");
 				break;
 			}
 			case SYS_SEEK:
@@ -140,74 +138,7 @@ syscall_handler (struct intr_frame *f UNUSED)
 				close(arg[0]);
 				break;
 			}
-		//Dispatch syscall to handler	
-		//~ switch (*esp){
-        //~ case SYS_HALT:
-            //~ halt();
-            //~ break;
-        //~ case SYS_EXIT:
-			//~ is_mapped(esp+1);
-          	//~ exit(*(esp+1));
-            //~ break;
-    	//~ case SYS_EXEC:
-			//~ is_mapped(*(esp+1));
-			//~ f->eax = exec (*(esp+1));
-            //~ break;
-        //~ case SYS_WAIT:
-			//~ is_mapped(esp+1);
-            //~ f->eax = wait(*(esp+1));
-            //~ break;
-        //~ case SYS_CREATE:
-			//~ is_mapped(*(esp+1));
-			//~ is_mapped(esp+2);
-			//~ f->eax = create ( *(esp+1), (esp+2));
-            //~ break;
-        //~ case SYS_REMOVE:
-			//~ is_mapped(*(esp+1));
-			//~ f->eax = remove (*(esp+1));
-            //~ break;
-        //~ case SYS_OPEN:
-			//~ is_mapped(*(esp+1));
-			//~ f->eax = open (*(esp+1));
-            //~ break;
-        //~ case SYS_FILESIZE:
-			//~ is_mapped(esp+1);
-			//~ f->eax = filesize ( esp+1 );
-            //~ break;
-        //~ case SYS_READ:
-			//~ is_mapped(esp+1);
-			//~ is_mapped(*(esp+2));
-			//~ is_mapped(esp+3);
-			//~ f->eax = read ( (esp+1), *(esp+2), (esp+3) );
-            //~ break;
-        //~ case SYS_WRITE:
-			//~ 
-           //~ // is_mapped(esp+1);
-			//~ //is_mapped(*(esp+2));
-			//~ //is_mapped(esp+3);
-			//~ //f->eax = write ( (esp+1), *(esp+2), (esp+3) );
-			//~ arg[2]=user_to_kernel_ptr((const void *) arg[2]);
-           //~ // printf("Calling write\n");
-			//~ f->eax = write (arg[1], (const void *)arg[2], (unsigned) arg[3]);
-          	//~ 
-            //~ break;
-        //~ case SYS_SEEK:
-			//~ is_mapped(esp+1);
-			//~ is_mapped(esp+2);
-			//~ seek ( (esp+1), (esp+2) );
-          	//~ break;
-        //~ case SYS_TELL:
-			//~ is_mapped(esp+1);
-			//~ f->eax = tell ( (esp+1) );
-          	//~ break;
-        //~ case SYS_CLOSE:
-			//~ is_mapped(esp+1);
-			//~ close ( (esp+1) );
-          	//~ break;
-        //~ //default:
-		//~ //	thread_exit();
-		//~ //	break;
-    }
+	  }
 }
 //good
 void halt (void)
@@ -228,12 +159,8 @@ void exit (int status)
 //good
 pid_t exec (const char *cmd_line)
 {
-  //printf("\nIn exec\n\n");
 	pid_t pid = process_execute(cmd_line);
 	struct child_process* cp = get_child_process(pid);
-  //printf("\nmid exec\n\n");
-	//ASSERT(cp);
-	//printf("\nCp load is %d \n\n", cp->load);
 	while (cp->load == 0)
     {
       barrier();
@@ -242,7 +169,6 @@ pid_t exec (const char *cmd_line)
     {
       return ERROR;
     }
-  //printf("\nexiting exec\n\n");
 	return pid;
 }
 //good
@@ -384,29 +310,7 @@ void close (int fd)
 	lock_release(&sys_lock);
 }
 
-//~ void
-//~ is_mapped(int* esp) 
-//~ {
-	//~ struct thread *cur = thread_current ();
-	//~ 
-	//~ if(esp == NULL)
-	//~ {
-		//~ printf ("%s: exit(%d)\n", cur->name, cur->status);
-		//~ thread_exit ();
-	//~ }
-	//~ 
-	//~ if(is_kernel_vaddr (esp))
-	//~ {
-		//~ printf ("%s: exit(%d)\n", cur->name, cur->status);
-		//~ thread_exit ();	
-	//~ }
-    //~ 
-    //~ if( pagedir_get_page (cur->pagedir, esp) == NULL )
-    //~ {
-		//~ printf ("%s: exit(%d)\n", cur->name, cur->status);
-		//~ thread_exit ();
-	//~ }
-//~ }
+
 //good
 struct child_process* add_child_process (int pid)
 {
@@ -533,13 +437,10 @@ void check_buff(void* buffer, unsigned size)
 //good
 void check_vaddr (const void *vaddr)
 {
-  //printf("\nChecking vaddr\n\n");
 	if (!is_user_vaddr(vaddr) || vaddr < BOTTOM_USER_VADDR_SPACE)
     {
-      //printf("\nGoing to return error\n\n");
       exit(ERROR);
     }
-  //printf("\nClear\n\n");
 }
 //good
 int is_mapped(const void *vaddr)
@@ -548,10 +449,7 @@ int is_mapped(const void *vaddr)
 	void *ptr = pagedir_get_page(thread_current()->pagedir, vaddr);
 	if (!ptr)
 	{
-    //printf("\nGoing to return error\n\n");
 		exit(ERROR);
 	}
-  //ASSERT(0==1);
-  //printf("\nReturning ptr\n\n");
 	return (int) ptr;
 }

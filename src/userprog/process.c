@@ -575,9 +575,6 @@ static bool setup_stack_helper (const char * cmd_line, uint8_t * kpage, uint8_t 
     *esp-=sizeof(&null);
     memcpy (*esp, &null, sizeof(&null));
 	
-    // Use for debugging
-    //hex_dump(0, *esp, (int) ((size_t) PHYS_BASE - (size_t) *esp), true);	
-
 	return true;
 }
 
