@@ -117,7 +117,9 @@ syscall_handler (struct intr_frame *f UNUSED)
 				get_arg(f, &arg[0], 3);
 				check_buff((void *) arg[1], (unsigned) arg[2]);
 				arg[1] = is_mapped((const void *) arg[1]);
+        //printf("\nAfter is mapped\n\n");
 				f->eax = write(arg[0], (const void *) arg[1], (unsigned) arg[2]);
+        //printf("\nAfter write\n\n");
 				break;
 			}
 			case SYS_SEEK:
@@ -531,10 +533,13 @@ void check_buff(void* buffer, unsigned size)
 //good
 void check_vaddr (const void *vaddr)
 {
+  //printf("\nChecking vaddr\n\n");
 	if (!is_user_vaddr(vaddr) || vaddr < BOTTOM_USER_VADDR_SPACE)
     {
+      //printf("\nGoing to return error\n\n");
       exit(ERROR);
     }
+  //printf("\nClear\n\n");
 }
 //good
 int is_mapped(const void *vaddr)
@@ -543,7 +548,10 @@ int is_mapped(const void *vaddr)
 	void *ptr = pagedir_get_page(thread_current()->pagedir, vaddr);
 	if (!ptr)
 	{
+    //printf("\nGoing to return error\n\n");
 		exit(ERROR);
 	}
+  //ASSERT(0==1);
+  //printf("\nReturning ptr\n\n");
 	return (int) ptr;
 }

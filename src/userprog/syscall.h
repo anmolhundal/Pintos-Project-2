@@ -5,10 +5,6 @@
 #include "threads/synch.h"
 
 #define ERROR -1
-//~ #define CLOSE_ALL -2
-//~ #define NOT_LOADED 0
-//~ #define LOAD_SUCCESS 1
-//~ #define LOAD_FAIL 2
 
 struct child_process {
   int pid;
