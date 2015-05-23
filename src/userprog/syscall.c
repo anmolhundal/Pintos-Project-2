@@ -226,9 +226,12 @@ void exit (int status)
 //good
 pid_t exec (const char *cmd_line)
 {
+  //printf("\nIn exec\n\n");
 	pid_t pid = process_execute(cmd_line);
 	struct child_process* cp = get_child_process(pid);
+  //printf("\nmid exec\n\n");
 	//ASSERT(cp);
+	//printf("\nCp load is %d \n\n", cp->load);
 	while (cp->load == 0)
     {
       barrier();
@@ -237,6 +240,7 @@ pid_t exec (const char *cmd_line)
     {
       return ERROR;
     }
+  //printf("\nexiting exec\n\n");
 	return pid;
 }
 //good
